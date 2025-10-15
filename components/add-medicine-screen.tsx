@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,9 +9,18 @@ import { ArrowLeft, X } from "lucide-react"
 interface AddMedicineScreenProps {
   onAdd: (medicine: any) => void
   onCancel: () => void
+  initialData?: Partial<{
+    name: string
+    dose: string
+    shape: string
+    color: string
+    frequency: number
+    programDuration: number
+    times: string[]
+  }>
 }
 
-export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreenProps) {
+export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddMedicineScreenProps) {
   const [formData, setFormData] = useState({
     name: "",
     dose: "",
@@ -21,6 +30,18 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
     programDuration: 4,
   })
   const [writing, setWriting] = useState(false)
+
+  // Prefill the form when initialData is provided (e.g., from a scanned tag)
+  useEffect(() => {
+    if (initialData) {
+      setFormData((prev) => ({
+        ...prev,
+        ...initialData,
+        frequency: Number(initialData.frequency ?? prev.frequency),
+        programDuration: Number(initialData.programDuration ?? prev.programDuration),
+      }))
+    }
+  }, [initialData])
 
   const shapes = [
     { id: "pill", icon: "💊", name: "Pill" },

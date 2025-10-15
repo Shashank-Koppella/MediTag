@@ -7,7 +7,7 @@ interface HomeScreenProps {
   user: any
   medicines: any[]
   onMedicineClick: (medicine: any) => void
-  onAddMedicine: () => void
+  onAddMedicine: (prefill?: any) => void // changed: allow optional prefill
   onProfileClick: () => void
   onMedicineTaken: (medicineId: number) => void
   onKeepTrack: () => void
@@ -37,20 +37,6 @@ export default function HomeScreen({
   const [scanning, setScanning] = useState(false)
   const [scanningImport, setScanningImport] = useState(false)
 
-  // Secure context + capability checks
-  const ensureNfcAvailable = () => {
-    if (typeof window === "undefined") return false
-    if (!window.isSecureContext) {
-      alert("NFC requires a secure context. Use HTTPS (or localhost) and a supported browser.")
-      return false
-    }
-    if (!("NDEFReader" in window)) {
-      alert("NFC scanning is not supported on this device or browser.")
-      return false
-    }
-    return true
-  }
-
   // Decode NDEF Text record payload (strip status byte + language code)
   const decodeTextRecord = (data: DataView) => {
     const status = data.getUint8(0)
@@ -62,12 +48,32 @@ export default function HomeScreen({
     )
   }
 
+  const parseNdefJson = (event: any) => {
+    const records = event?.message?.records || []
+    let jsonStr: string | null = null
+    for (const rec of records) {
+      if (rec.recordType === "mime" && rec.mediaType === "application/json") {
+        jsonStr = new TextDecoder().decode(rec.data)
+        break
+      }
+      if (!jsonStr && rec.recordType === "text") {
+        jsonStr = decodeTextRecord(rec.data)
+      }
+    }
+    if (!jsonStr) return null
+    try {
+      const obj = JSON.parse(jsonStr)
+      return obj?.data || obj
+    } catch {
+      return null
+    }
+  }
+
   // One-shot scan with cleanup and timeout
   const scanOnce = async () => {
     const ndef = new (window as any).NDEFReader()
     const controller = new AbortController()
     const signal = controller.signal
-
     const result = await new Promise<any>((resolve, reject) => {
       const onReading = (event: any) => {
         cleanup()
@@ -81,17 +87,14 @@ export default function HomeScreen({
         ndef.removeEventListener("reading", onReading as any)
         ndef.removeEventListener("readingerror", onReadingError as any)
         clearTimeout(timer)
-        // Abort ongoing scan session to release the NFC prompt
         controller.abort()
       }
       ndef.addEventListener("reading", onReading as any, { once: true })
       ndef.addEventListener("readingerror", onReadingError as any, { once: true })
-
       const timer = setTimeout(() => {
         cleanup()
         reject(new DOMException("Scan timed out.", "AbortError"))
       }, 15000)
-
       ndef.scan({ signal }).catch((err: any) => {
         clearTimeout(timer)
         ndef.removeEventListener("reading", onReading as any)
@@ -99,8 +102,20 @@ export default function HomeScreen({
         reject(err)
       })
     })
-
     return result
+  }
+
+  const ensureNfcAvailable = () => {
+    if (typeof window === "undefined") return false
+    if (!window.isSecureContext) {
+      alert("NFC requires HTTPS (or localhost) in a supported browser.")
+      return false
+    }
+    if (!("NDEFReader" in window)) {
+      alert("NFC scanning is not supported on this device or browser.")
+      return false
+    }
+    return true
   }
 
   const showNfcError = (err: any) => {
@@ -117,37 +132,14 @@ export default function HomeScreen({
     }
   }
 
-  const parseNdefJson = (event: any) => {
-    const records = event?.message?.records || []
-    let jsonStr: string | null = null
-
-    // Prefer JSON MIME record; fallback to Text record containing JSON
-    for (const rec of records) {
-      if (rec.recordType === "mime" && rec.mediaType === "application/json") {
-        jsonStr = new TextDecoder().decode(rec.data)
-        break
-      }
-      if (!jsonStr && rec.recordType === "text") {
-        jsonStr = decodeTextRecord(rec.data)
-      }
-    }
-
-    if (!jsonStr) throw new Error("No parsable JSON found on the tag.")
-    let obj: any
-    try {
-      obj = JSON.parse(jsonStr)
-    } catch {
-      throw new Error("Tag text is not valid JSON.")
-    }
-    return obj?.data || obj
-  }
-
   const handleAddMedicineClick = async () => {
     if (!ensureNfcAvailable()) return
     setScanning(true)
     try {
-      await scanOnce() // only require a tap; we don't need to parse here
-      onAddMedicine()
+      const event = await scanOnce()
+      const prefill = parseNdefJson(event)
+      // If the tag already has MediTag JSON, prefill the add form.
+      onAddMedicine(prefill || undefined)
     } catch (err: any) {
       showNfcError(err)
     } finally {

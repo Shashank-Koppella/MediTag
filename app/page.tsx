@@ -32,6 +32,7 @@ export default function MediTagApp() {
   const [medicines, setMedicines] = useState<any[]>([]) // cleared dummy data
 
   const [medicineHistory] = useState<any[]>([]) // cleared dummy history
+  const [addPrefill, setAddPrefill] = useState<any | null>(null) // added
 
   // Splash -> Onboarding in 3 seconds
   useEffect(() => {
@@ -118,13 +119,16 @@ export default function MediTagApp() {
             user={user}
             medicines={medicines}
             onMedicineClick={(medicine) => handleScreenChange("medicine-details", medicine)}
-            onAddMedicine={() => handleScreenChange("add-medicine")}
+            onAddMedicine={(prefill) => {
+              setAddPrefill(prefill || null)
+              setCurrentScreen("add-medicine")
+            }}
             onProfileClick={() => handleScreenChange("profile")}
             onMedicineTaken={handleMedicineTaken}
             onKeepTrack={() => handleScreenChange("keep-track")}
             onHistory={() => handleScreenChange("history")}
             onEmergency={() => handleScreenChange("emergency")}
-            onImportMedicine={handleImportMedicine} // added
+            onImportMedicine={handleImportMedicine}
           />
         )
       case "keep-track":
@@ -157,7 +161,16 @@ export default function MediTagApp() {
       case "medicine-details":
         return <MedicineDetailsScreen medicine={selectedMedicine} onBack={() => handleScreenChange("home")} />
       case "add-medicine":
-        return <AddMedicineScreen onAdd={handleAddMedicine} onCancel={() => handleScreenChange("home")} />
+        return (
+          <AddMedicineScreen
+            initialData={addPrefill || undefined} // pass prefill if present
+            onAdd={handleAddMedicine}
+            onCancel={() => {
+              setAddPrefill(null)
+              handleScreenChange("home")
+            }}
+          />
+        )
       case "profile":
         return (
           <ProfileScreen
