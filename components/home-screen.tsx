@@ -37,92 +37,137 @@ export default function HomeScreen({
   const [scanning, setScanning] = useState(false)
   const [scanningImport, setScanningImport] = useState(false)
 
-  const handleAddMedicineClick = async () => {
-    if (typeof window === "undefined") return
+  // Secure context + capability checks
+  const ensureNfcAvailable = () => {
+    if (typeof window === "undefined") return false
+    if (!window.isSecureContext) {
+      alert("NFC requires a secure context. Use HTTPS (or localhost) and a supported browser.")
+      return false
+    }
     if (!("NDEFReader" in window)) {
       alert("NFC scanning is not supported on this device or browser.")
-      return
+      return false
     }
+    return true
+  }
+
+  // Decode NDEF Text record payload (strip status byte + language code)
+  const decodeTextRecord = (data: DataView) => {
+    const status = data.getUint8(0)
+    const langLen = status & 0x3f
+    const utf16 = (status & 0x80) !== 0
+    const enc = utf16 ? "utf-16" : "utf-8"
+    return new TextDecoder(enc).decode(
+      data.buffer.slice(data.byteOffset + 1 + langLen, data.byteOffset + data.byteLength)
+    )
+  }
+
+  // One-shot scan with cleanup and timeout
+  const scanOnce = async () => {
+    const ndef = new (window as any).NDEFReader()
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    const result = await new Promise<any>((resolve, reject) => {
+      const onReading = (event: any) => {
+        cleanup()
+        resolve(event)
+      }
+      const onReadingError = () => {
+        cleanup()
+        reject(new Error("Tag is not NDEF-formatted or could not be read."))
+      }
+      const cleanup = () => {
+        ndef.removeEventListener("reading", onReading as any)
+        ndef.removeEventListener("readingerror", onReadingError as any)
+        clearTimeout(timer)
+        // Abort ongoing scan session to release the NFC prompt
+        controller.abort()
+      }
+      ndef.addEventListener("reading", onReading as any, { once: true })
+      ndef.addEventListener("readingerror", onReadingError as any, { once: true })
+
+      const timer = setTimeout(() => {
+        cleanup()
+        reject(new DOMException("Scan timed out.", "AbortError"))
+      }, 15000)
+
+      ndef.scan({ signal }).catch((err: any) => {
+        clearTimeout(timer)
+        ndef.removeEventListener("reading", onReading as any)
+        ndef.removeEventListener("readingerror", onReadingError as any)
+        reject(err)
+      })
+    })
+
+    return result
+  }
+
+  const showNfcError = (err: any) => {
+    const name = err?.name || ""
+    const msg = err?.message || ""
+    if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
+      alert("NFC permission denied or disabled. Enable NFC and use Chrome/Edge on Android over HTTPS.")
+    } else if (name === "NotSupportedError") {
+      alert("NFC is not supported on this device.")
+    } else if (name === "AbortError" || /timed out/i.test(msg)) {
+      alert("NFC scanning timed out or was canceled. Hold your phone near the tag and try again.")
+    } else {
+      alert("NFC scanning failed or was canceled.")
+    }
+  }
+
+  const parseNdefJson = (event: any) => {
+    const records = event?.message?.records || []
+    let jsonStr: string | null = null
+
+    // Prefer JSON MIME record; fallback to Text record containing JSON
+    for (const rec of records) {
+      if (rec.recordType === "mime" && rec.mediaType === "application/json") {
+        jsonStr = new TextDecoder().decode(rec.data)
+        break
+      }
+      if (!jsonStr && rec.recordType === "text") {
+        jsonStr = decodeTextRecord(rec.data)
+      }
+    }
+
+    if (!jsonStr) throw new Error("No parsable JSON found on the tag.")
+    let obj: any
+    try {
+      obj = JSON.parse(jsonStr)
+    } catch {
+      throw new Error("Tag text is not valid JSON.")
+    }
+    return obj?.data || obj
+  }
+
+  const handleAddMedicineClick = async () => {
+    if (!ensureNfcAvailable()) return
     setScanning(true)
     try {
-      const ndef = new (window as any).NDEFReader()
-      const controller = new AbortController()
-      const done = new Promise<void>((resolve, reject) => {
-        ndef.onreading = () => {
-          controller.abort()
-          resolve()
-        }
-        ndef.onerror = (e: any) => {
-          controller.abort()
-          reject(e)
-        }
-      })
-      await ndef.scan({ signal: controller.signal })
-      await done
+      await scanOnce() // only require a tap; we don't need to parse here
       onAddMedicine()
     } catch (err: any) {
-      const msg = err?.message || ""
-      if (/NotAllowedError|SecurityError/i.test(msg)) {
-        alert("NFC permission denied or unavailable. Ensure NFC is enabled and use a supported browser.")
-      } else {
-        alert("NFC scanning failed or was canceled.")
-      }
+      showNfcError(err)
     } finally {
       setScanning(false)
     }
   }
 
   const handleScanExistingClick = async () => {
-    if (typeof window === "undefined") return
-    if (!("NDEFReader" in window)) {
-      alert("NFC scanning is not supported on this device or browser.")
-      return
-    }
+    if (!ensureNfcAvailable()) return
     setScanningImport(true)
     try {
-      const ndef = new (window as any).NDEFReader()
-      const controller = new AbortController()
-      const done = new Promise<any>((resolve, reject) => {
-        ndef.onreading = (event: any) => {
-          try {
-            const rec = event.message?.records?.[0]
-            if (!rec) throw new Error("No records found on tag.")
-            let text = ""
-            if (rec.recordType === "mime" && rec.mediaType === "application/json") {
-              // rec.data is a DataView
-              text = new TextDecoder().decode(rec.data)
-            } else if (rec.recordType === "text") {
-              text = new TextDecoder().decode(rec.data)
-            } else {
-              throw new Error("Unsupported record format.")
-            }
-            const parsed = JSON.parse(text)
-            resolve(parsed?.data || parsed)
-          } catch (e) {
-            reject(e)
-          } finally {
-            controller.abort()
-          }
-        }
-        ndef.onerror = (e: any) => {
-          controller.abort()
-          reject(e)
-        }
-      })
-      await ndef.scan({ signal: controller.signal })
-      const payload = await done
+      const event = await scanOnce()
+      const payload = parseNdefJson(event)
       if (!payload?.name || !payload?.dose) {
         alert("Tag does not contain valid medicine information.")
         return
       }
       onImportMedicine(payload)
     } catch (err: any) {
-      const msg = err?.message || ""
-      if (/NotAllowedError|SecurityError/i.test(msg)) {
-        alert("NFC permission denied or unavailable. Ensure NFC is enabled and use a supported browser.")
-      } else {
-        alert("NFC scanning failed or was canceled.")
-      }
+      showNfcError(err)
     } finally {
       setScanningImport(false)
     }

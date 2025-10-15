@@ -34,8 +34,8 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
   const setField = (k: string, v: any) => setFormData((p) => ({ ...p, [k]: v }))
   const submit = async () => {
     if (!formData.name || !formData.dose) return
-    if (typeof window === "undefined" || !("NDEFReader" in window)) {
-      alert("NFC is not supported on this device or browser. Enable NFC or use a supported browser.")
+    if (typeof window === "undefined" || !window.isSecureContext || !("NDEFReader" in window)) {
+      alert("NFC is not supported here. Use HTTPS (or localhost) and a supported browser with NFC enabled.")
       return
     }
     setWriting(true)
@@ -54,20 +54,29 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
           times: [],
         },
       }
+      const json = JSON.stringify(payload)
+
       await ndef.write({
         records: [
+          // Primary record: JSON MIME (preferred)
           {
             recordType: "mime",
             mediaType: "application/json",
-            data: JSON.stringify(payload),
+            data: json,
+          },
+          // Fallback: text record containing the same JSON
+          {
+            recordType: "text",
+            data: json,
           },
         ],
       })
+
       alert("Tag written successfully. You can attach this tag to the medicine.")
       onAdd(formData)
     } catch (err: any) {
       const msg = err?.message || ""
-      if (/NotAllowedError|SecurityError/i.test(msg)) {
+      if (/NotAllowedError|SecurityError/i.test(msg) || err?.name === "NotAllowedError") {
         alert("NFC permission denied or unavailable. Ensure NFC is enabled and use a supported browser.")
       } else {
         alert("Failed to write to NFC tag or operation was canceled.")
