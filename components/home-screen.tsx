@@ -8,7 +8,7 @@ interface HomeScreenProps {
   user: any
   medicines: any[]
   onMedicineClick: (medicine: any) => void
-  onAddMedicine: (prefill?: any) => void // changed: allow optional prefill
+  onAddMedicine: (prefill?: any) => void
   onProfileClick: () => void
   onMedicineTaken: (medicineId: number) => void
   onKeepTrack: () => void
@@ -109,57 +109,38 @@ export default function HomeScreen({
 
   const ensureNfcAvailable = () => {
     if (typeof window === "undefined") return false
-    if (!window.isSecureContext) {
-      toast({
-        variant: "destructive",
-        title: "NFC requires HTTPS",
-        description: "Open the site over HTTPS (or use localhost) in a supported browser.",
-      })
-      return false
-    }
-    if (!("NDEFReader" in window)) {
-      toast({
-        variant: "destructive",
-        title: "NFC not supported",
-        description: "Use Chrome/Edge on Android with NFC enabled.",
-      })
-      return false
-    }
-    return true
+    return window.isSecureContext && "NDEFReader" in window
+  }
+
+  const showNfcBlocked = () => {
+    toast({
+      variant: "destructive",
+      title: "NFC unavailable",
+      description: "Proceeding without NFC. You can still add the medicine; the tag won’t be written.",
+    })
   }
 
   const showNfcError = (err: any) => {
     const name = err?.name || ""
     const msg = err?.message || ""
     if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
-      toast({
-        variant: "destructive",
-        title: "NFC permission denied or disabled",
-        description: "Enable NFC and try again in Chrome/Edge on Android.",
-      })
+      toast({ variant: "destructive", title: "NFC permission denied/disabled", description: "Enable NFC and try again." })
     } else if (name === "NotSupportedError") {
-      toast({
-        variant: "destructive",
-        title: "NFC not supported",
-        description: "This device doesn’t support NFC.",
-      })
+      toast({ variant: "destructive", title: "NFC not supported", description: "This device doesn’t support NFC." })
     } else if (name === "AbortError" || /timed out/i.test(msg)) {
-      toast({
-        variant: "destructive",
-        title: "Scan timed out or canceled",
-        description: "Hold the phone near the tag and try again.",
-      })
+      toast({ variant: "destructive", title: "Scan timed out/canceled", description: "Hold near the tag and retry." })
     } else {
-      toast({
-        variant: "destructive",
-        title: "NFC scan failed",
-        description: "Could not read the tag.",
-      })
+      toast({ variant: "destructive", title: "NFC scan failed", description: "Could not read the tag." })
     }
   }
 
   const handleAddMedicineClick = async () => {
-    if (!ensureNfcAvailable()) return
+    // Soft requirement: if NFC is blocked/unavailable, still open the form
+    if (!ensureNfcAvailable()) {
+      showNfcBlocked()
+      onAddMedicine()
+      return
+    }
     setScanning(true)
     toast({ title: "Hold near the NFC tag", description: "Scanning..." })
     try {
@@ -168,25 +149,26 @@ export default function HomeScreen({
       toast({ title: "Tag detected" })
       onAddMedicine(prefill || undefined)
     } catch (err: any) {
+      // Even if scan fails, allow adding manually
       showNfcError(err)
+      onAddMedicine()
     } finally {
       setScanning(false)
     }
   }
 
   const handleScanExistingClick = async () => {
-    if (!ensureNfcAvailable()) return
+    if (!ensureNfcAvailable()) {
+      showNfcBlocked()
+      return
+    }
     setScanningImport(true)
     toast({ title: "Hold near the NFC tag", description: "Scanning..." })
     try {
       const event = await scanOnce()
       const payload = parseNdefJson(event)
       if (!payload?.name || !payload?.dose) {
-        toast({
-          variant: "destructive",
-          title: "Invalid tag",
-          description: "No valid medicine info found.",
-        })
+        toast({ variant: "destructive", title: "Invalid tag", description: "No valid medicine info found." })
         return
       }
       toast({ title: "Medicine found", description: payload.name })

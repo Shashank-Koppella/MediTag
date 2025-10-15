@@ -55,19 +55,31 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
   const colors = ["#E8F5E8", "#FFE8E8", "#E8F4FF", "#FFF3E0", "#F3E5F5"]
 
   const setField = (k: string, v: any) => setFormData((p) => ({ ...p, [k]: v }))
+
+  const addLocally = (reason?: string) => {
+    if (reason) {
+      toast({ variant: "destructive", title: "NFC write skipped", description: reason })
+    }
+    onAdd(formData)
+  }
+
   const submit = async () => {
     if (!formData.name || !formData.dose) return
-    if (typeof window === "undefined" || !window.isSecureContext || !("NDEFReader" in window)) {
-      toast({
-        variant: "destructive",
-        title: "NFC not available",
-        description: "Use HTTPS (or localhost) and a supported browser with NFC enabled.",
-      })
+
+    setWriting(true)
+
+    // Try to write, but always add locally (fallback) if writing is not possible.
+    const canUseNfc =
+      typeof window !== "undefined" && window.isSecureContext && "NDEFReader" in window
+
+    if (!canUseNfc) {
+      addLocally("Proceeding without NFC. The medicine will be saved in the app.")
+      setWriting(false)
       return
     }
-    setWriting(true)
-    toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
+
     try {
+      toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
       const ndef = new (window as any).NDEFReader()
       const payload = {
         v: 1,
@@ -95,16 +107,15 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
       onAdd(formData)
     } catch (err: any) {
       const name = err?.name || ""
-      if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(err?.message || "")) {
-        toast({
-          variant: "destructive",
-          title: "Permission denied",
-          description: "Enable NFC and try again in a supported browser.",
-        })
+      const msg = err?.message || ""
+      if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
+        addLocally("Permission denied or NFC disabled. Saved locally.")
       } else if (name === "NotSupportedError") {
-        toast({ variant: "destructive", title: "Unsupported tag", description: "Tag cannot be written." })
+        addLocally("Unsupported/locked tag. Saved locally.")
+      } else if (name === "AbortError" || /timed out/i.test(msg)) {
+        addLocally("Write timed out/canceled. Saved locally.")
       } else {
-        toast({ variant: "destructive", title: "Write failed", description: "Could not write to NFC tag." })
+        addLocally("Could not write to the NFC tag. Saved locally.")
       }
     } finally {
       setWriting(false)
