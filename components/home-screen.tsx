@@ -39,81 +39,14 @@ export default function HomeScreen({
   const [scanningImport, setScanningImport] = useState(false)
   const { toast } = useToast()
 
-  // Decode NDEF Text record payload (strip status byte + language code)
-  const decodeTextRecord = (data: DataView) => {
-    const status = data.getUint8(0)
-    const langLen = status & 0x3f
-    const utf16 = (status & 0x80) !== 0
-    const enc = utf16 ? "utf-16" : "utf-8"
-    return new TextDecoder(enc).decode(
-      data.buffer.slice(data.byteOffset + 1 + langLen, data.byteOffset + data.byteLength)
-    )
-  }
-
-  const parseNdefJson = (event: any) => {
-    const records = event?.message?.records || []
-    let jsonStr: string | null = null
-    for (const rec of records) {
-      if (rec.recordType === "mime" && rec.mediaType === "application/json") {
-        jsonStr = new TextDecoder().decode(rec.data)
-        break
-      }
-      if (!jsonStr && rec.recordType === "text") {
-        jsonStr = decodeTextRecord(rec.data)
-      }
-    }
-    if (!jsonStr) return null
-    try {
-      const obj = JSON.parse(jsonStr)
-      return obj?.data || obj
-    } catch {
-      return null
-    }
-  }
-
-  // One-shot scan with cleanup and timeout
-  const scanOnce = async () => {
-    const ndef = new (window as any).NDEFReader()
-    const controller = new AbortController()
-    const signal = controller.signal
-    const result = await new Promise<any>((resolve, reject) => {
-      const onReading = (event: any) => {
-        cleanup()
-        resolve(event)
-      }
-      const onReadingError = () => {
-        cleanup()
-        reject(new Error("Tag is not NDEF-formatted or could not be read."))
-      }
-      const cleanup = () => {
-        ndef.removeEventListener("reading", onReading as any)
-        ndef.removeEventListener("readingerror", onReadingError as any)
-        clearTimeout(timer)
-        controller.abort()
-      }
-      ndef.addEventListener("reading", onReading as any, { once: true })
-      ndef.addEventListener("readingerror", onReadingError as any, { once: true })
-      const timer = setTimeout(() => {
-        cleanup()
-        reject(new DOMException("Scan timed out.", "AbortError"))
-      }, 15000)
-      ndef.scan({ signal }).catch((err: any) => {
-        clearTimeout(timer)
-        ndef.removeEventListener("reading", onReading as any)
-        ndef.removeEventListener("readingerror", onReadingError as any)
-        reject(err)
-      })
-    })
-    return result
-  }
-
-  const ensureNfcAvailable = () => {
-    if (typeof window === "undefined") return false
-    return window.isSecureContext && "NDEFReader" in window
+  // Pressing + now opens the form immediately (no scan here)
+  const handleAddMedicineClick = () => {
+    onAddMedicine()
   }
 
   const showNfcBlocked = () => {
     toast({
+      duration: 2500,
       variant: "destructive",
       title: "NFC unavailable",
       description: "Use Chrome/Edge on Android over HTTPS to scan NFC tags.",
@@ -123,20 +56,26 @@ export default function HomeScreen({
   const showNfcError = (err: any) => {
     const name = err?.name || ""
     const msg = err?.message || ""
-    if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
-      toast({ variant: "destructive", title: "NFC permission denied/disabled", description: "Enable NFC and try again." })
-    } else if (name === "NotSupportedError") {
-      toast({ variant: "destructive", title: "NFC not supported", description: "This device doesn’t support NFC." })
-    } else if (name === "AbortError" || /timed out/i.test(msg)) {
-      toast({ variant: "destructive", title: "Scan timed out/canceled", description: "Hold near the tag and retry." })
-    } else {
-      toast({ variant: "destructive", title: "NFC scan failed", description: "Could not read the tag." })
-    }
-  }
-
-  // Pressing + now opens the form immediately (no scan here)
-  const handleAddMedicineClick = () => {
-    onAddMedicine()
+    toast({
+      duration: 2500,
+      variant: "destructive",
+      title:
+        name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)
+          ? "NFC permission denied/disabled"
+          : name === "NotSupportedError"
+            ? "NFC not supported"
+            : name === "AbortError" || /timed out/i.test(msg)
+              ? "Scan timed out/canceled"
+              : "NFC scan failed",
+      description:
+        name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)
+          ? "Enable NFC and try again."
+          : name === "NotSupportedError"
+            ? "This device doesn’t support NFC."
+            : name === "AbortError" || /timed out/i.test(msg)
+              ? "Hold near the tag and retry."
+              : "Could not read the tag.",
+    })
   }
 
   const handleScanExistingClick = async () => {
@@ -145,7 +84,7 @@ export default function HomeScreen({
       return
     }
     setScanningImport(true)
-    toast({ title: "Hold near the NFC tag", description: "Scanning..." })
+    toast({ duration: 2000, title: "Hold near the NFC tag", description: "Scanning..." })
     try {
       const event = await scanOnce()
       const payload = parseNdefJson(event)
@@ -338,8 +277,6 @@ export default function HomeScreen({
           <button
             onClick={handleAddMedicineClick}
             className="flex flex-col items-center text-white bg-[#264233] rounded-2xl w-14 h-12 justify-center"
-            disabled={scanning}
-            aria-busy={scanning}
           >
             <Plus className="w-6 h-6 text-white" />
             <span className="sr-only">Add Meds</span>

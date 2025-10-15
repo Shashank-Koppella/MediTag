@@ -59,12 +59,10 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
   const submit = async () => {
     if (!formData.name || !formData.dose) return
 
-    // Require NFC to be available for saving
-    const canUseNfc =
-      typeof window !== "undefined" && window.isSecureContext && "NDEFReader" in window
-
+    const canUseNfc = typeof window !== "undefined" && window.isSecureContext && "NDEFReader" in window
     if (!canUseNfc) {
       toast({
+        duration: 2500,
         variant: "destructive",
         title: "NFC not available",
         description: "Use HTTPS (or localhost) and a supported browser with NFC enabled.",
@@ -73,7 +71,7 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
     }
 
     setWriting(true)
-    toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
+    toast({ duration: 2000, title: "Ready to write", description: "Hold near a writable NFC tag..." })
     try {
       const ndef = new (window as any).NDEFReader()
       const payload = {
@@ -84,38 +82,46 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
           dose: formData.dose,
           shape: formData.shape,
           color: formData.color,
-          frequency: formData.frequency,           // Times per day
-          programDuration: formData.programDuration, // Program duration in weeks
-          times: [],                                // optional per-time list
+          frequency: formData.frequency,
+          programDuration: formData.programDuration,
+          times: [],
         },
       }
       const json = JSON.stringify(payload)
 
+      // Overwrites previous NDEF message with our records
       await ndef.write({
         records: [
           { recordType: "mime", mediaType: "application/json", data: json },
-          { recordType: "text", data: json }, // fallback for broader readers
+          { recordType: "text", data: json },
         ],
       })
 
-      toast({ title: "Tag written", description: `${formData.name} saved to tag.` })
-      onAdd(formData) // only add after a successful write
+      toast({ duration: 2000, title: "Tag written", description: `${formData.name} saved to tag.` })
+      onAdd(formData)
     } catch (err: any) {
       const name = err?.name || ""
       const msg = err?.message || ""
-      if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
-        toast({
-          variant: "destructive",
-          title: "Permission denied",
-          description: "Enable NFC and try again in a supported browser.",
-        })
-      } else if (name === "NotSupportedError") {
-        toast({ variant: "destructive", title: "Unsupported tag", description: "Tag cannot be written." })
-      } else if (name === "AbortError" || /timed out/i.test(msg)) {
-        toast({ variant: "destructive", title: "Write canceled or timed out", description: "Hold near the tag and retry." })
-      } else {
-        toast({ variant: "destructive", title: "Write failed", description: "Could not write to NFC tag." })
-      }
+      toast({
+        duration: 3000,
+        variant: "destructive",
+        title:
+          name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)
+            ? "Permission denied"
+            : name === "NotSupportedError"
+              ? "Unsupported tag"
+              : name === "AbortError" || /timed out/i.test(msg)
+                ? "Write canceled or timed out"
+                : "Write failed",
+        description:
+          name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)
+            ? "Enable NFC and try again in a supported browser."
+            : name === "NotSupportedError"
+              ? "Tag cannot be written."
+              : name === "AbortError" || /timed out/i.test(msg)
+                ? "Hold near the tag and retry."
+                : "Could not write to NFC tag.",
+      })
     } finally {
       setWriting(false)
     }

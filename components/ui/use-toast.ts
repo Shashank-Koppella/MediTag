@@ -8,8 +8,8 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_LIMIT = 3 // was 1
+const TOAST_REMOVE_DELAY = 1000 // was 1000000 (1e6ms = ~16m)
 
 type ToasterToast = ToastProps & {
   id: string
@@ -155,6 +155,7 @@ function toast({ ...props }: Toast) {
   dispatch({
     type: "ADD_TOAST",
     toast: {
+      duration: 2500, // auto-close quickly
       ...props,
       id,
       open: true,
@@ -182,7 +183,8 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+    // do not depend on state here to avoid listener re-registering leaks
+  }, [])
 
   return {
     ...state,
