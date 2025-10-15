@@ -81,17 +81,38 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
       const json = JSON.stringify(payload)
       const bytes = new TextEncoder().encode(json)
 
-      await ndef.write({
-        records: [
-          { recordType: "mime", mediaType: "application/json", data: bytes }, // bytes for MIME
-          { recordType: "text", data: json }, // text fallback
-        ],
-      })
+      // Add a timeout to avoid hanging sessions
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 20000)
 
+      try {
+        // Strategy 1: simplest (text record). Most compatible and smallest.
+        await ndef.write(json, { signal: controller.signal })
+      } catch (e1: any) {
+        try {
+          // Strategy 2: explicit single text record with JSON
+          await ndef.write(
+            { records: [{ recordType: "text", data: json }] },
+            { signal: controller.signal },
+          )
+        } catch (e2: any) {
+          // Strategy 3: JSON MIME record as bytes
+          await ndef.write(
+            { records: [{ recordType: "mime", mediaType: "application/json", data: bytes }] },
+            { signal: controller.signal },
+          )
+        }
+      } finally {
+        clearTimeout(timer)
+      }
+
+      // If we get here, write succeeded
       onAdd(formData)
     } catch (err: any) {
-      console.warn("NFC write failed:", err?.name || err?.message || err)
-      alert("Failed to write to NFC tag. Ensure NFC is enabled and try again.")
+      const name = err?.name || "Error"
+      const msg = err?.message ? `: ${err.message}` : ""
+      console.warn("NFC write failed:", err)
+      alert(`Failed to write to NFC tag (${name}${msg}). Ensure NFC is enabled, use Chrome/Edge on Android, and tap a rewritable NDEF tag.`)
     } finally {
       setWriting(false)
     }

@@ -34,30 +34,25 @@ export default function HomeScreen({
   }))
 
   const [filter, setFilter] = useState<FilterKey>("all")
-  const [scanning, setScanning] = useState(false)
   const [scanningImport, setScanningImport] = useState(false)
-
-  // Pressing + now opens the form immediately (no scan here)
-  const handleAddMedicineClick = () => {
-    onAddMedicine()
-  }
 
   const ensureNfcAvailable = () => {
     if (typeof window === "undefined") return false
     return window.isSecureContext && "NDEFReader" in window
   }
 
-  // Decode a Text record (strip status byte + language code)
+  // Decode Text record payload (status byte + lang code aware)
   const decodeTextRecordPayload = (data: DataView) => {
     const status = data.getUint8(0)
     const langLen = status & 0x3f
     const utf16 = (status & 0x80) !== 0
     const enc = utf16 ? "utf-16" : "utf-8"
-    const td = new TextDecoder(enc)
-    return td.decode(data.buffer.slice(data.byteOffset + 1 + langLen, data.byteOffset + data.byteLength))
+    return new TextDecoder(enc).decode(
+      data.buffer.slice(data.byteOffset + 1 + langLen, data.byteOffset + data.byteLength),
+    )
   }
 
-  // Parse JSON from NDEF message (prefer application/json, fallback to text JSON)
+  // Prefer JSON MIME, fallback to Text record
   const parseNdefJson = (event: any) => {
     const records: any[] = event?.message?.records || []
     let jsonStr: string | null = null
@@ -85,7 +80,7 @@ export default function HomeScreen({
     }
   }
 
-  // One-shot scan with cleanup and timeout
+  // One-shot scan with timeout and cleanup
   const scanOnce = async () => {
     const ndef = new (window as any).NDEFReader()
     const controller = new AbortController()
@@ -106,7 +101,6 @@ export default function HomeScreen({
         clearTimeout(timer)
         controller.abort()
       }
-
       ndef.addEventListener("reading", onReading as any, { once: true })
       ndef.addEventListener("readingerror", onReadingError as any, { once: true })
 
@@ -124,6 +118,10 @@ export default function HomeScreen({
     })
 
     return result
+  }
+
+  const handleAddMedicineClick = () => {
+    onAddMedicine()
   }
 
   const handleScanExistingClick = async () => {
