@@ -29,66 +29,9 @@ export default function MediTagApp() {
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [selectedMedicine, setSelectedMedicine] = useState<any>(null)
   const [user, setUser] = useState<any>(null)
-  const [medicines, setMedicines] = useState<any[]>([
-    {
-      id: 1,
-      name: "Atorvastatin",
-      dose: "20 mg",
-      shape: "pill",
-      color: "#E8F5E8",
-      frequency: 1,
-      times: ["9 am"],
-      programDuration: "12 weeks",
-      totalQuantity: 84,
-      remainingQuantity: 72,
-      taken: false,
-    },
-    {
-      id: 2,
-      name: "Gabapentin",
-      dose: "300 mg",
-      shape: "capsule",
-      color: "#FFA726",
-      frequency: 3,
-      times: ["9 am", "3 pm", "9 pm"],
-      programDuration: "8 weeks",
-      totalQuantity: 168,
-      remainingQuantity: 126,
-      taken: true,
-    },
-    {
-      id: 3,
-      name: "Lexapro",
-      dose: "10 mg",
-      shape: "pill",
-      color: "#E3F2FD",
-      frequency: 1,
-      times: ["9 am"],
-      programDuration: "16 weeks",
-      totalQuantity: 112,
-      remainingQuantity: 98,
-      taken: false,
-    },
-    {
-      id: 4,
-      name: "Ibuprofen",
-      dose: "400 mg",
-      shape: "pill",
-      color: "#FFF3E0",
-      frequency: 2,
-      times: ["12 pm", "8 pm"],
-      programDuration: "2 weeks",
-      totalQuantity: 28,
-      remainingQuantity: 14,
-      taken: false,
-    },
-  ])
+  const [medicines, setMedicines] = useState<any[]>([]) // cleared dummy data
 
-  const [medicineHistory] = useState<any[]>([
-    { id: 5, name: "Aspirin", dose: "100 mg", completedDate: "2024-01-15", duration: "4 weeks" },
-    { id: 6, name: "Vitamin D", dose: "1000 IU", completedDate: "2024-01-10", duration: "8 weeks" },
-    { id: 7, name: "Metformin", dose: "500 mg", completedDate: "2023-12-20", duration: "12 weeks" },
-  ])
+  const [medicineHistory] = useState<any[]>([]) // cleared dummy history
 
   // Splash -> Onboarding in 3 seconds
   useEffect(() => {
@@ -121,6 +64,29 @@ export default function MediTagApp() {
     }
     setMedicines((m) => [...m, medicine])
     setCurrentScreen("home")
+  }
+
+  const handleImportMedicine = (data: any) => {
+    const base = {
+      name: data.name,
+      dose: data.dose,
+      shape: data.shape || "pill",
+      color: data.color || "#E8F5E8",
+      frequency: Number(data.frequency) || 1,
+      programDuration: Number(data.programDuration) || 1,
+      times: Array.isArray(data.times) ? data.times : [],
+    }
+    const medicine = {
+      ...base,
+      id: medicines.length + 1,
+      taken: false,
+      totalQuantity: base.programDuration * base.frequency * 7,
+      remainingQuantity: base.programDuration * base.frequency * 7,
+    }
+    setMedicines((m) => [...m, medicine])
+    // Show details immediately
+    setSelectedMedicine(medicine)
+    setCurrentScreen("medicine-details")
   }
 
   const handleMedicineTaken = (medicineId: number) => {
@@ -158,6 +124,7 @@ export default function MediTagApp() {
             onKeepTrack={() => handleScreenChange("keep-track")}
             onHistory={() => handleScreenChange("history")}
             onEmergency={() => handleScreenChange("emergency")}
+            onImportMedicine={handleImportMedicine} // added
           />
         )
       case "keep-track":

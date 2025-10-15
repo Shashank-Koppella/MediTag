@@ -20,6 +20,7 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
     frequency: 1,
     programDuration: 4,
   })
+  const [writing, setWriting] = useState(false)
 
   const shapes = [
     { id: "pill", icon: "💊", name: "Pill" },
@@ -31,7 +32,50 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
   const colors = ["#E8F5E8", "#FFE8E8", "#E8F4FF", "#FFF3E0", "#F3E5F5"]
 
   const setField = (k: string, v: any) => setFormData((p) => ({ ...p, [k]: v }))
-  const submit = () => formData.name && formData.dose && onAdd(formData)
+  const submit = async () => {
+    if (!formData.name || !formData.dose) return
+    if (typeof window === "undefined" || !("NDEFReader" in window)) {
+      alert("NFC is not supported on this device or browser. Enable NFC or use a supported browser.")
+      return
+    }
+    setWriting(true)
+    try {
+      const ndef = new (window as any).NDEFReader()
+      const payload = {
+        v: 1,
+        type: "meditag/medicine",
+        data: {
+          name: formData.name,
+          dose: formData.dose,
+          shape: formData.shape,
+          color: formData.color,
+          frequency: formData.frequency,
+          programDuration: formData.programDuration,
+          times: [],
+        },
+      }
+      await ndef.write({
+        records: [
+          {
+            recordType: "mime",
+            mediaType: "application/json",
+            data: JSON.stringify(payload),
+          },
+        ],
+      })
+      alert("Tag written successfully. You can attach this tag to the medicine.")
+      onAdd(formData)
+    } catch (err: any) {
+      const msg = err?.message || ""
+      if (/NotAllowedError|SecurityError/i.test(msg)) {
+        alert("NFC permission denied or unavailable. Ensure NFC is enabled and use a supported browser.")
+      } else {
+        alert("Failed to write to NFC tag or operation was canceled.")
+      }
+    } finally {
+      setWriting(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f5f5]">
@@ -124,6 +168,8 @@ export default function AddMedicineScreen({ onAdd, onCancel }: AddMedicineScreen
         <Button
           onClick={submit}
           className="w-full h-12 mt-8 mb-10 bg-[#264233] hover:bg-[#1f362a] text-white rounded-xl font-semibold"
+          disabled={writing}
+          aria-busy={writing}
         >
           Add Schedule
         </Button>
