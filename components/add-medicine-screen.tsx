@@ -56,30 +56,25 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
 
   const setField = (k: string, v: any) => setFormData((p) => ({ ...p, [k]: v }))
 
-  const addLocally = (reason?: string) => {
-    if (reason) {
-      toast({ variant: "destructive", title: "NFC write skipped", description: reason })
-    }
-    onAdd(formData)
-  }
-
   const submit = async () => {
     if (!formData.name || !formData.dose) return
 
-    setWriting(true)
-
-    // Try to write, but always add locally (fallback) if writing is not possible.
+    // Require NFC to be available for saving
     const canUseNfc =
       typeof window !== "undefined" && window.isSecureContext && "NDEFReader" in window
 
     if (!canUseNfc) {
-      addLocally("Proceeding without NFC. The medicine will be saved in the app.")
-      setWriting(false)
+      toast({
+        variant: "destructive",
+        title: "NFC not available",
+        description: "Use HTTPS (or localhost) and a supported browser with NFC enabled.",
+      })
       return
     }
 
+    setWriting(true)
+    toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
     try {
-      toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
       const ndef = new (window as any).NDEFReader()
       const payload = {
         v: 1,
@@ -89,9 +84,9 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
           dose: formData.dose,
           shape: formData.shape,
           color: formData.color,
-          frequency: formData.frequency,
-          programDuration: formData.programDuration,
-          times: [],
+          frequency: formData.frequency,           // Times per day
+          programDuration: formData.programDuration, // Program duration in weeks
+          times: [],                                // optional per-time list
         },
       }
       const json = JSON.stringify(payload)
@@ -99,23 +94,27 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
       await ndef.write({
         records: [
           { recordType: "mime", mediaType: "application/json", data: json },
-          { recordType: "text", data: json },
+          { recordType: "text", data: json }, // fallback for broader readers
         ],
       })
 
       toast({ title: "Tag written", description: `${formData.name} saved to tag.` })
-      onAdd(formData)
+      onAdd(formData) // only add after a successful write
     } catch (err: any) {
       const name = err?.name || ""
       const msg = err?.message || ""
       if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
-        addLocally("Permission denied or NFC disabled. Saved locally.")
+        toast({
+          variant: "destructive",
+          title: "Permission denied",
+          description: "Enable NFC and try again in a supported browser.",
+        })
       } else if (name === "NotSupportedError") {
-        addLocally("Unsupported/locked tag. Saved locally.")
+        toast({ variant: "destructive", title: "Unsupported tag", description: "Tag cannot be written." })
       } else if (name === "AbortError" || /timed out/i.test(msg)) {
-        addLocally("Write timed out/canceled. Saved locally.")
+        toast({ variant: "destructive", title: "Write canceled or timed out", description: "Hold near the tag and retry." })
       } else {
-        addLocally("Could not write to the NFC tag. Saved locally.")
+        toast({ variant: "destructive", title: "Write failed", description: "Could not write to NFC tag." })
       }
     } finally {
       setWriting(false)

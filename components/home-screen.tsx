@@ -116,7 +116,7 @@ export default function HomeScreen({
     toast({
       variant: "destructive",
       title: "NFC unavailable",
-      description: "Proceeding without NFC. You can still add the medicine; the tag won’t be written.",
+      description: "Use Chrome/Edge on Android over HTTPS to scan NFC tags.",
     })
   }
 
@@ -134,27 +134,9 @@ export default function HomeScreen({
     }
   }
 
-  const handleAddMedicineClick = async () => {
-    // Soft requirement: if NFC is blocked/unavailable, still open the form
-    if (!ensureNfcAvailable()) {
-      showNfcBlocked()
-      onAddMedicine()
-      return
-    }
-    setScanning(true)
-    toast({ title: "Hold near the NFC tag", description: "Scanning..." })
-    try {
-      const event = await scanOnce()
-      const prefill = parseNdefJson(event)
-      toast({ title: "Tag detected" })
-      onAddMedicine(prefill || undefined)
-    } catch (err: any) {
-      // Even if scan fails, allow adding manually
-      showNfcError(err)
-      onAddMedicine()
-    } finally {
-      setScanning(false)
-    }
+  // Pressing + now opens the form immediately (no scan here)
+  const handleAddMedicineClick = () => {
+    onAddMedicine()
   }
 
   const handleScanExistingClick = async () => {
