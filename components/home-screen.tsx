@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { Pill, Plus, Settings, Search } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
 
 interface HomeScreenProps {
   user: any
@@ -36,6 +37,7 @@ export default function HomeScreen({
   const [filter, setFilter] = useState<FilterKey>("all")
   const [scanning, setScanning] = useState(false)
   const [scanningImport, setScanningImport] = useState(false)
+  const { toast } = useToast()
 
   // Decode NDEF Text record payload (strip status byte + language code)
   const decodeTextRecord = (data: DataView) => {
@@ -108,11 +110,19 @@ export default function HomeScreen({
   const ensureNfcAvailable = () => {
     if (typeof window === "undefined") return false
     if (!window.isSecureContext) {
-      alert("NFC requires HTTPS (or localhost) in a supported browser.")
+      toast({
+        variant: "destructive",
+        title: "NFC requires HTTPS",
+        description: "Open the site over HTTPS (or use localhost) in a supported browser.",
+      })
       return false
     }
     if (!("NDEFReader" in window)) {
-      alert("NFC scanning is not supported on this device or browser.")
+      toast({
+        variant: "destructive",
+        title: "NFC not supported",
+        description: "Use Chrome/Edge on Android with NFC enabled.",
+      })
       return false
     }
     return true
@@ -122,23 +132,40 @@ export default function HomeScreen({
     const name = err?.name || ""
     const msg = err?.message || ""
     if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(msg)) {
-      alert("NFC permission denied or disabled. Enable NFC and use Chrome/Edge on Android over HTTPS.")
+      toast({
+        variant: "destructive",
+        title: "NFC permission denied or disabled",
+        description: "Enable NFC and try again in Chrome/Edge on Android.",
+      })
     } else if (name === "NotSupportedError") {
-      alert("NFC is not supported on this device.")
+      toast({
+        variant: "destructive",
+        title: "NFC not supported",
+        description: "This device doesn’t support NFC.",
+      })
     } else if (name === "AbortError" || /timed out/i.test(msg)) {
-      alert("NFC scanning timed out or was canceled. Hold your phone near the tag and try again.")
+      toast({
+        variant: "destructive",
+        title: "Scan timed out or canceled",
+        description: "Hold the phone near the tag and try again.",
+      })
     } else {
-      alert("NFC scanning failed or was canceled.")
+      toast({
+        variant: "destructive",
+        title: "NFC scan failed",
+        description: "Could not read the tag.",
+      })
     }
   }
 
   const handleAddMedicineClick = async () => {
     if (!ensureNfcAvailable()) return
     setScanning(true)
+    toast({ title: "Hold near the NFC tag", description: "Scanning..." })
     try {
       const event = await scanOnce()
       const prefill = parseNdefJson(event)
-      // If the tag already has MediTag JSON, prefill the add form.
+      toast({ title: "Tag detected" })
       onAddMedicine(prefill || undefined)
     } catch (err: any) {
       showNfcError(err)
@@ -150,13 +177,19 @@ export default function HomeScreen({
   const handleScanExistingClick = async () => {
     if (!ensureNfcAvailable()) return
     setScanningImport(true)
+    toast({ title: "Hold near the NFC tag", description: "Scanning..." })
     try {
       const event = await scanOnce()
       const payload = parseNdefJson(event)
       if (!payload?.name || !payload?.dose) {
-        alert("Tag does not contain valid medicine information.")
+        toast({
+          variant: "destructive",
+          title: "Invalid tag",
+          description: "No valid medicine info found.",
+        })
         return
       }
+      toast({ title: "Medicine found", description: payload.name })
       onImportMedicine(payload)
     } catch (err: any) {
       showNfcError(err)

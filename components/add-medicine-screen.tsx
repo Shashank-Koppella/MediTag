@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowLeft, X } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
 
 interface AddMedicineScreenProps {
   onAdd: (medicine: any) => void
@@ -30,6 +31,7 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
     programDuration: 4,
   })
   const [writing, setWriting] = useState(false)
+  const { toast } = useToast()
 
   // Prefill the form when initialData is provided (e.g., from a scanned tag)
   useEffect(() => {
@@ -56,10 +58,15 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
   const submit = async () => {
     if (!formData.name || !formData.dose) return
     if (typeof window === "undefined" || !window.isSecureContext || !("NDEFReader" in window)) {
-      alert("NFC is not supported here. Use HTTPS (or localhost) and a supported browser with NFC enabled.")
+      toast({
+        variant: "destructive",
+        title: "NFC not available",
+        description: "Use HTTPS (or localhost) and a supported browser with NFC enabled.",
+      })
       return
     }
     setWriting(true)
+    toast({ title: "Ready to write", description: "Hold near a writable NFC tag..." })
     try {
       const ndef = new (window as any).NDEFReader()
       const payload = {
@@ -79,28 +86,25 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
 
       await ndef.write({
         records: [
-          // Primary record: JSON MIME (preferred)
-          {
-            recordType: "mime",
-            mediaType: "application/json",
-            data: json,
-          },
-          // Fallback: text record containing the same JSON
-          {
-            recordType: "text",
-            data: json,
-          },
+          { recordType: "mime", mediaType: "application/json", data: json },
+          { recordType: "text", data: json },
         ],
       })
 
-      alert("Tag written successfully. You can attach this tag to the medicine.")
+      toast({ title: "Tag written", description: `${formData.name} saved to tag.` })
       onAdd(formData)
     } catch (err: any) {
-      const msg = err?.message || ""
-      if (/NotAllowedError|SecurityError/i.test(msg) || err?.name === "NotAllowedError") {
-        alert("NFC permission denied or unavailable. Ensure NFC is enabled and use a supported browser.")
+      const name = err?.name || ""
+      if (name === "NotAllowedError" || /NotAllowedError|SecurityError/.test(err?.message || "")) {
+        toast({
+          variant: "destructive",
+          title: "Permission denied",
+          description: "Enable NFC and try again in a supported browser.",
+        })
+      } else if (name === "NotSupportedError") {
+        toast({ variant: "destructive", title: "Unsupported tag", description: "Tag cannot be written." })
       } else {
-        alert("Failed to write to NFC tag or operation was canceled.")
+        toast({ variant: "destructive", title: "Write failed", description: "Could not write to NFC tag." })
       }
     } finally {
       setWriting(false)
