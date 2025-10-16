@@ -54,65 +54,64 @@ export default function AddMedicineScreen({ onAdd, onCancel, initialData }: AddM
   const setField = (k: string, v: any) => setFormData((p) => ({ ...p, [k]: v }))
 
   const submit = async () => {
-    if (!formData.name || !formData.dose) return
-
+    // Require NFC presence; do not write to the tag
     const canUseNfc = typeof window !== "undefined" && window.isSecureContext && "NDEFReader" in window
     if (!canUseNfc) {
-      alert("NFC not available. Use HTTPS (or localhost) and a supported browser with NFC enabled.")
+      alert("NFC not available. Use HTTPS (or localhost) in a supported browser on Android with NFC enabled.")
       return
     }
 
     setWriting(true)
     try {
       const ndef = new (window as any).NDEFReader()
-      const payload = {
-        v: 1,
-        type: "meditag/medicine",
-        data: {
-          name: formData.name,
-          dose: formData.dose,
-          shape: formData.shape,
-          color: formData.color,
-          frequency: formData.frequency,
-          programDuration: formData.programDuration,
-          times: [],
-        },
-      }
-      const json = JSON.stringify(payload)
-      const bytes = new TextEncoder().encode(json)
-
-      // Add a timeout to avoid hanging sessions
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 20000)
+      const signal = controller.signal
 
-      try {
-        // Strategy 1: simplest (text record). Most compatible and smallest.
-        await ndef.write(json, { signal: controller.signal })
-      } catch (e1: any) {
-        try {
-          // Strategy 2: explicit single text record with JSON
-          await ndef.write(
-            { records: [{ recordType: "text", data: json }] },
-            { signal: controller.signal },
-          )
-        } catch (e2: any) {
-          // Strategy 3: JSON MIME record as bytes
-          await ndef.write(
-            { records: [{ recordType: "mime", mediaType: "application/json", data: bytes }] },
-            { signal: controller.signal },
-          )
+      // One-shot detection
+      await new Promise<void>((resolve, reject) => {
+        const onReading = () => {
+          cleanup()
+          resolve()
         }
-      } finally {
-        clearTimeout(timer)
-      }
+        const onError = () => {
+          cleanup()
+          reject(new Error("Tag read error"))
+        }
+        const cleanup = () => {
+          ndef.removeEventListener("reading", onReading as any)
+          ndef.removeEventListener("readingerror", onError as any)
+          clearTimeout(timer)
+          controller.abort()
+        }
+        ndef.addEventListener("reading", onReading as any, { once: true })
+        ndef.addEventListener("readingerror", onError as any, { once: true })
+        const timer = setTimeout(() => {
+          cleanup()
+          reject(new DOMException("Scan timed out.", "AbortError"))
+        }, 15000)
+        ndef.scan({ signal }).catch((err: any) => {
+          clearTimeout(timer)
+          ndef.removeEventListener("reading", onReading as any)
+          ndef.removeEventListener("readingerror", onError as any)
+          reject(err)
+        })
+      })
 
-      // If we get here, write succeeded
-      onAdd(formData)
+      // Hardcoded medicine on detection
+      const fixed = {
+        name: "Paracetemol",
+        dose: "300mg",
+        shape: "pill",
+        color: "#E8F5E8",
+        frequency: 1, // times per day
+        programDuration: 4,
+        times: [],
+      }
+      onAdd(fixed)
     } catch (err: any) {
       const name = err?.name || "Error"
       const msg = err?.message ? `: ${err.message}` : ""
-      console.warn("NFC write failed:", err)
-      alert(`Failed to write to NFC tag (${name}${msg}). Ensure NFC is enabled, use Chrome/Edge on Android, and tap a rewritable NDEF tag.`)
+      alert(`Failed to detect NFC tag (${name}${msg}). Try again.`)
     } finally {
       setWriting(false)
     }

@@ -41,85 +41,43 @@ export default function HomeScreen({
     return window.isSecureContext && "NDEFReader" in window
   }
 
-  // Decode Text record payload (status byte + lang code aware)
-  const decodeTextRecordPayload = (data: DataView) => {
-    const status = data.getUint8(0)
-    const langLen = status & 0x3f
-    const utf16 = (status & 0x80) !== 0
-    const enc = utf16 ? "utf-16" : "utf-8"
-    return new TextDecoder(enc).decode(
-      data.buffer.slice(data.byteOffset + 1 + langLen, data.byteOffset + data.byteLength),
-    )
-  }
-
-  // Prefer JSON MIME, fallback to Text record
-  const parseNdefJson = (event: any) => {
-    const records: any[] = event?.message?.records || []
-    let jsonStr: string | null = null
-
-    for (const rec of records) {
-      if (rec.recordType === "mime" && rec.mediaType === "application/json") {
-        jsonStr = new TextDecoder().decode(rec.data)
-        break
-      }
-    }
-    if (!jsonStr) {
-      for (const rec of records) {
-        if (rec.recordType === "text") {
-          jsonStr = decodeTextRecordPayload(rec.data)
-          break
-        }
-      }
-    }
-    if (!jsonStr) return null
-    try {
-      const obj = JSON.parse(jsonStr)
-      return obj?.data || obj
-    } catch {
-      return null
-    }
-  }
-
   // One-shot scan with timeout and cleanup
   const scanOnce = async () => {
     const ndef = new (window as any).NDEFReader()
     const controller = new AbortController()
     const signal = controller.signal
-
-    const result = await new Promise<any>((resolve, reject) => {
-      const onReading = (event: any) => {
+    const result = await new Promise<void>((resolve, reject) => {
+      const onReading = () => {
         cleanup()
-        resolve(event)
+        resolve()
       }
-      const onReadingError = () => {
+      const onError = () => {
         cleanup()
-        reject(new Error("Tag is not NDEF-formatted or could not be read."))
+        reject(new Error("Tag read error"))
       }
       const cleanup = () => {
         ndef.removeEventListener("reading", onReading as any)
-        ndef.removeEventListener("readingerror", onReadingError as any)
+        ndef.removeEventListener("readingerror", onError as any)
         clearTimeout(timer)
         controller.abort()
       }
       ndef.addEventListener("reading", onReading as any, { once: true })
-      ndef.addEventListener("readingerror", onReadingError as any, { once: true })
-
+      ndef.addEventListener("readingerror", onError as any, { once: true })
       const timer = setTimeout(() => {
         cleanup()
         reject(new DOMException("Scan timed out.", "AbortError"))
       }, 15000)
-
       ndef.scan({ signal }).catch((err: any) => {
         clearTimeout(timer)
         ndef.removeEventListener("reading", onReading as any)
-        ndef.removeEventListener("readingerror", onReadingError as any)
+        ndef.removeEventListener("readingerror", onError as any)
         reject(err)
       })
     })
-
     return result
   }
 
+  // Pressing + still opens the form (no NFC here)
   const handleAddMedicineClick = () => {
     onAddMedicine()
   }
@@ -131,13 +89,18 @@ export default function HomeScreen({
     }
     setScanningImport(true)
     try {
-      const event = await scanOnce()
-      const payload = parseNdefJson(event)
-      if (!payload?.name || !payload?.dose) {
-        console.warn("Invalid tag: No valid medicine info found.")
-        return
+      await scanOnce()
+      // Hardcoded import on detection
+      const fixed = {
+        name: "Paracetemol",
+        dose: "300mg",
+        shape: "pill",
+        color: "#E8F5E8",
+        frequency: 1,
+        programDuration: 4,
+        times: [],
       }
-      onImportMedicine(payload)
+      onImportMedicine(fixed)
     } catch (err: any) {
       console.warn("NFC scan error:", err?.name || err?.message || err)
     } finally {
